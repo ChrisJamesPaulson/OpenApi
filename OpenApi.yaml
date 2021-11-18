@@ -1,0 +1,615 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  DigiSteel Purchase Order API and Supporting Services
+
+Parameters:
+  pName:
+    Description: Name of workload
+    Type: String
+  pCpu:
+    Description: vCPUs
+    Type: String
+  pMem:
+    Description: Mem
+    Type: String
+  pImage:
+    Description: Docker Image
+    Type: String
+  pDesiredCount:
+    Description: Number of tasks per service
+    Type: String
+  pScaledTaskMinCapacity:
+    Description: Max Scales
+    Type: String
+  pScaledTaskMaxCapacity:
+    Description: Max Scales
+    Type: String
+  pScaleLowerBound:
+    Description: Scale up when
+    Type: String
+  pScaleUpperBound:
+    Description: Scale down when
+    Type: String
+  pHealthCheck:
+    Description: ALB Health Check
+    Type: String
+  pListenerPriority:
+    Description: Listner Priority, MUST BE UNIQUE
+    Type: String
+  pUnhealthyHostsThreshold:
+    Description: number of unhealthy hosts to alert on
+    Type: Number
+  pUnhealthyHostsPeriod:
+    Description: number of seconds for 1 check
+    Type: Number
+  pUnhealthyHostsEvaluationPeriods:
+    Description: Number of checks before the check is marked as unhealthy
+    Type: Number
+  pCpuThreshold:
+    Description: number of unhealthy hosts to alert on
+    Type: Number
+  pCpuPeriod:
+    Description: number of seconds for 1 check
+    Type: Number
+  pCpuEvaluationPeriods:
+    Description: Number of checks before the check is marked as unhealthy
+    Type: Number
+  pMemoryThreshold:
+    Description: number of unhealthy hosts to alert on
+    Type: Number
+  pMemoryPeriod:
+    Description: number of seconds for 1 check
+    Type: Number
+  pMemoryEvaluationPeriods:
+    Description: Number of checks before the check is marked as unhealthy
+    Type: Number
+  pASPNETCOREENVIRONMENT:
+    Description: Env Var to locate paramaters in param store
+    Type: String
+  pLog4NetParam:
+    Description: Param for /<ENV>/<Service>/Log4Net/PropertyOverrides/0/NodeContent
+    Type: String
+    
+Resources:
+  #Params
+  ParamURL:
+    Type: AWS::SSM::Parameter
+    Properties: 
+      Name: !Sub /${pASPNETCOREENVIRONMENT}/Global/Api/PurchaseOrderUrl
+      Type: String
+      Value:
+        Fn::Sub: 
+          - https://${pName}.automation-${EnvId}.digi-steel-app.com/
+          - EnvId: !ImportValue cfRamp-EnvId
+
+  ParamNodeContent:
+    Type: AWS::SSM::Parameter
+    Properties: 
+      Name: !Sub /${pASPNETCOREENVIRONMENT}/PurchaseOrder/Log4Net/PropertyOverrides/0/NodeContent
+      Type: String
+      Value: !Ref pLog4NetParam
+
+  ParamXRay:
+    Type: AWS::SSM::Parameter
+    Properties: 
+      Name: !Sub /${pASPNETCOREENVIRONMENT}/PurchaseOrder/XRay/SegmentName
+      Type: String
+      Value: "Digisteel.PurchaseOrder.API"
+
+  ParamEventsSec:
+    Type: AWS::SSM::Parameter
+    Properties: 
+      Name: !Sub /${pASPNETCOREENVIRONMENT}/PurchaseOrder/EventsAPISecretKey
+      Type: String
+      Value: "c53e0411-4ca8-417c-8dcb-ffaa950c039a"
+
+  ParamReceiptPhotoBucket:
+    Type: AWS::SSM::Parameter
+    Properties: 
+      Name: !Sub /${pASPNETCOREENVIRONMENT}/PurchaseOrder/ReceiptPhotoBucket
+      Type: String
+      Value: !Ref S3Bucket
+      
+  # A role needed by ECS with Fargate
+  ExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: "sts:AssumeRole"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+        - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+        - arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceRole
+        - arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceAutoscaleRole
+
+  EcsTaskRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      RoleName:
+        Fn::Sub:
+          - "${pName}-${AWS::Region}-${EnvId}"
+          - EnvId: !ImportValue cfRamp-EnvId
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - "ecs-tasks.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Path: "/"
+      Policies:
+        - PolicyName:
+            Fn::Sub:
+              - "${pName}-${AWS::Region}-${EnvId}"
+              - EnvId: !ImportValue cfRamp-EnvId
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ssm:DescribeParameters
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - dynamodb:Get*
+                  - dynamodb:List*
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                  - dynamodb:Describe*
+                  - dynamodb:BatchWriteItem
+                  - dynamodb:BatchGetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                Resource:
+                  - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/PurchaseOrder*
+                  - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/Receipt*
+                  - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/Requisition*
+                  - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/Return*
+                  - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/ServiceType*
+                  - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/ServiceTypeServiceTypePurchaseAddition*
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameters
+                  - ssm:GetParametersbyPath
+                Resource: !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/*
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:DescribeLogGroups
+                  - logs:DescribeLogStreams
+                  - logs:CreateLogGroup
+                  - logs:PutLogEvents
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - sns:ListTagsForResource
+                  - sns:ListSubscriptionsByTopic
+                  - sns:GetTopicAttributes
+                  - sns:ListTopics
+                  - sns:GetPlatformApplicationAttributes
+                  - sns:Unsubscribe
+                  - sns:GetSubscriptionAttributes
+                  - sns:ListSubscriptions
+                  - sns:CheckIfPhoneNumberIsOptedOut
+                  - sns:ListPhoneNumbersOptedOut
+                  - sns:ListEndpointsByPlatformApplication
+                  - sns:GetEndpointAttributes
+                  - sns:Publish
+                  - sns:Subscribe
+                  - sns:GetSMSAttributes
+                  - sns:ListPlatformApplications
+                Resource: !ImportValue cfNotifications-SNSNotificationsTopic 
+              - Effect: Allow
+                Action:
+                  - s3:*
+                Resource: 
+                  - !GetAtt S3Bucket.Arn
+                  - Fn::Sub:
+                    - "arn:aws:s3:::${pName}receiptphoto-${AWS::Region}-${Customer}-${EnvId}/*"
+                    - EnvId: !ImportValue cfRamp-EnvId
+                      Customer: !ImportValue cfRamp-Customer
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess
+        - arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess 
+
+  # ECS Task and Service
+  AppTask:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      ContainerDefinitions:
+        - Name: "xray-daemon"
+          Image: "amazon/aws-xray-daemon"
+          Cpu: 32
+          Memory: 256
+          PortMappings: 
+            - ContainerPort: 2000
+              Protocol: "udp"
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !ImportValue cfCore-ContainerLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: "${pName}-xray"
+        - Name:
+            Fn::Sub:
+              - "${pName}-${AWS::Region}-${EnvId}"
+              - EnvId: !ImportValue cfRamp-EnvId
+          Image: !Ref pImage
+          PortMappings:
+            - ContainerPort: 80
+              HostPort: 80
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !ImportValue cfCore-ContainerLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: !Ref pName
+          Environment:
+            - Name: ASPNETCORE_ENVIRONMENT
+              Value: !Ref pASPNETCOREENVIRONMENT
+      Cpu: !Ref pCpu
+      ExecutionRoleArn: !GetAtt ExecutionRole.Arn
+      Memory: !Ref pMem
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      TaskRoleArn: !GetAtt EcsTaskRole.Arn
+
+  AppService:
+    DependsOn:
+      - IntTargetGroup
+      - ListenerRule
+    Type: AWS::ECS::Service
+    Properties:
+      Cluster: !ImportValue cfCore-EcsCluster
+      DesiredCount: !Ref pDesiredCount
+      TaskDefinition: !Ref AppTask
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: "DISABLED"
+          Subnets:
+            - !ImportValue cfRamp-AppSubnetAId
+            - !ImportValue cfRamp-AppSubnetBId
+            - !ImportValue cfRamp-AppSubnetCId
+          SecurityGroups:
+            - !ImportValue cfSecurityGroups-Ec2WebSg
+      LoadBalancers:
+        - ContainerName:
+            Fn::Sub:
+              - "${pName}-${AWS::Region}-${EnvId}"
+              - EnvId: !ImportValue cfRamp-EnvId
+          ContainerPort: 80
+          TargetGroupArn: !Ref IntTargetGroup
+
+  ListenerRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      Actions:
+        - TargetGroupArn: !Ref IntTargetGroup
+          Type: forward
+      Conditions:
+        - Field: host-header
+          HostHeaderConfig:
+            Values:
+              - !Ref IntDNS
+      ListenerArn: !ImportValue cfElb-IntListener
+      Priority: !Ref pListenerPriority
+
+  IntTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckEnabled: True
+      HealthCheckIntervalSeconds: 60
+      HealthCheckPath: !Ref pHealthCheck
+      HealthCheckPort: "80"
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 30
+      HealthyThresholdCount: 2
+      Matcher:
+        HttpCode: "200"
+      Name:
+        Fn::Sub:
+          - "${pName}-${AWS::Region}-${EnvId}"
+          - EnvId: !ImportValue cfRamp-EnvId
+      Port: 80
+      Protocol: HTTP
+      TargetGroupAttributes: 
+        - Key: load_balancing.algorithm.type
+          Value: least_outstanding_requests
+      TargetType: ip
+      UnhealthyThresholdCount: 2
+      VpcId: !ImportValue cfRamp-VpcId
+      # Tags:
+      #   - Tag
+
+  AutoScalingRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: [application-autoscaling.amazonaws.com]
+            Action: ["sts:AssumeRole"]
+      Path: /
+      Policies:
+        - PolicyName: ecs-service-autoscaling
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  [
+                    "application-autoscaling:*",
+                    "cloudwatch:DescribeAlarms",
+                    "cloudwatch:PutMetricAlarm",
+                    "ecs:DescribeServices",
+                    "ecs:UpdateService",
+                  ]
+                Resource: "*"
+
+  AutoScalingTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: !Ref pScaledTaskMaxCapacity
+      MinCapacity: !Ref pScaledTaskMinCapacity
+      ResourceId: !Join
+        - "/"
+        - - "service"
+          - !ImportValue cfCore-EcsCluster
+          - !GetAtt AppService.Name
+      RoleARN: !GetAtt AutoScalingRole.Arn
+      ScalableDimension: ecs:service:DesiredCount
+      ServiceNamespace: ecs
+
+  ScaleUpPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: ScaleUpPolicy
+      PolicyType: StepScaling
+      ScalingTargetId: !Ref "AutoScalingTarget"
+      StepScalingPolicyConfiguration:
+        MetricAggregationType: "Average"
+        AdjustmentType: "ChangeInCapacity"
+        Cooldown: 60
+        StepAdjustments:
+          - MetricIntervalLowerBound: !Ref pScaleLowerBound
+            ScalingAdjustment: 1
+
+  ScaleDownPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: ScaleDownPolicy
+      PolicyType: StepScaling
+      ScalingTargetId: !Ref AutoScalingTarget
+      StepScalingPolicyConfiguration:
+        AdjustmentType: "ChangeInCapacity"
+        Cooldown: 60
+        StepAdjustments:
+          - MetricIntervalUpperBound: !Ref pScaleUpperBound
+            ScalingAdjustment: -1
+
+  IntDNS:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !ImportValue cfCore-PublicHostedZone
+      AliasTarget:
+        DNSName: !ImportValue cfElb-IntElbDNSName
+        EvaluateTargetHealth: false
+        HostedZoneId: !ImportValue cfElb-ExtElbZoneId
+      Name: 
+        Fn::Sub: 
+          - ${pName}.automation-${EnvId}.digi-steel-app.com
+          - EnvId: !ImportValue cfRamp-EnvId
+      Type: "A"
+
+  UnhealthyHostsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: 
+          Fn::Sub:
+              - "${pName}-${EnvId} target group has 0 healthy hosts"
+              - EnvId: !ImportValue cfRamp-EnvId
+      Namespace: AWS/ApplicationELB
+      MetricName: HealthyHostCount
+      Statistic: Average
+      Period: !Ref pUnhealthyHostsPeriod
+      EvaluationPeriods: !Ref pUnhealthyHostsEvaluationPeriods
+      Threshold: !Ref pUnhealthyHostsThreshold
+      ComparisonOperator: LessThanOrEqualToThreshold
+      Dimensions:
+      - Name: TargetGroup
+        Value: !GetAtt IntTargetGroup.TargetGroupFullName      
+      - Name: LoadBalancer
+        Value: !ImportValue cfElb-IntElbFullName
+      AlarmActions:
+        - !ImportValue cfCore-SNSAlertsTopic
+
+  LowMemoryHostsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription:
+        Fn::Sub:
+          - "${EnvId}-${pName} Memory is low"
+          - EnvId: !ImportValue cfRamp-EnvId
+      Namespace: AWS/ECS
+      MetricName: MemoryUtilization
+      Unit: Percent
+      Statistic: Average
+      Period: !Ref pMemoryPeriod
+      EvaluationPeriods: !Ref pMemoryEvaluationPeriods
+      Threshold: !Ref pMemoryThreshold
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: ClusterName
+          Value: !ImportValue cfCore-EcsCluster
+        - Name: ServiceName
+          Value: !GetAtt AppService.Name
+      AlarmActions:
+        - !ImportValue cfCore-SNSAlertsTopic
+
+  HighCpuAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: 
+          Fn::Sub:
+              - "${EnvId}-${pName} CPU is High"
+              - EnvId: !ImportValue cfRamp-EnvId
+      Namespace: AWS/ECS
+      MetricName: CPUUtilization
+      Unit: Percent
+      Statistic: Average
+      Period: !Ref pCpuPeriod
+      EvaluationPeriods: !Ref pCpuEvaluationPeriods
+      Threshold: !Ref pCpuThreshold
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: ClusterName
+          Value: !ImportValue cfCore-EcsCluster
+        - Name: ServiceName
+          Value: !GetAtt AppService.Name
+      AlarmActions:
+        - !ImportValue cfCore-SNSAlertsTopic 
+        - !Ref ScaleUpPolicy
+      OKActions:
+        - !Ref ScaleDownPolicy
+
+  S3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName:
+        Fn::Sub:
+        - "${pName}receiptphoto-${AWS::Region}-${Customer}-${EnvId}"
+        - EnvId: !ImportValue cfRamp-EnvId
+          Customer: !ImportValue cfRamp-Customer
+      BucketEncryption: 
+        ServerSideEncryptionConfiguration:
+        - ServerSideEncryptionByDefault:
+            SSEAlgorithm: AES256
+
+  DynamoTable:
+    Type: AWS::DynamoDB::Table
+    Properties: 
+      AttributeDefinitions: 
+      - AttributeName: PK
+        AttributeType: S
+      - AttributeName: SK
+        AttributeType: S
+      BillingMode: PAY_PER_REQUEST
+      KeySchema: 
+      - AttributeName: PK
+        KeyType: HASH
+      - AttributeName: SK
+        KeyType: RANGE
+      TableName: PurchaseOrder
+      Tags: 
+        - Key: Backup
+          Value: "True"
+
+  ReceiptTable:
+    Type: AWS::DynamoDB::Table
+    Properties: 
+      AttributeDefinitions: 
+      - AttributeName: PK
+        AttributeType: S
+      - AttributeName: SK
+        AttributeType: S
+      BillingMode: PAY_PER_REQUEST
+      KeySchema: 
+      - AttributeName: PK
+        KeyType: HASH
+      - AttributeName: SK
+        KeyType: RANGE
+      TableName: Receipt
+      Tags: 
+        - Key: Backup
+          Value: "True"
+
+  RequisitionTable:
+    Type: AWS::DynamoDB::Table
+    Properties: 
+      AttributeDefinitions: 
+      - AttributeName: PK
+        AttributeType: S
+      - AttributeName: SK
+        AttributeType: S
+      BillingMode: PAY_PER_REQUEST
+      KeySchema: 
+      - AttributeName: PK
+        KeyType: HASH
+      - AttributeName: SK
+        KeyType: RANGE
+      TableName: Requisition
+      Tags: 
+        - Key: Backup
+          Value: "True"
+          
+  ReturnTable:
+    Type: AWS::DynamoDB::Table
+    Properties: 
+      AttributeDefinitions: 
+      - AttributeName: PK
+        AttributeType: S
+      - AttributeName: SK
+        AttributeType: S
+      BillingMode: PAY_PER_REQUEST
+      KeySchema: 
+      - AttributeName: PK
+        KeyType: HASH
+      - AttributeName: SK
+        KeyType: RANGE
+      TableName: ReturnOrder
+      Tags: 
+        - Key: Backup
+          Value: "True"
+          
+  ServiceTypeTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+      - AttributeName: PK
+        AttributeType: S
+      - AttributeName: SK
+        AttributeType: S
+      BillingMode: PAY_PER_REQUEST
+      KeySchema:
+      - AttributeName: PK
+        KeyType: HASH
+      - AttributeName: SK
+        KeyType: RANGE
+      TableName: ServiceType
+      Tags:
+        - Key: Backup
+          Value: "True" 
+          
+  ServiceTypePurchaseAdditionTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+      - AttributeName: PK
+        AttributeType: S
+      - AttributeName: SK
+        AttributeType: S
+      BillingMode: PAY_PER_REQUEST
+      KeySchema:
+      - AttributeName: PK
+        KeyType: HASH
+      - AttributeName: SK
+        KeyType: RANGE
+      TableName: ServiceTypePurchaseAddition
+      Tags:
+        - Key: Backup
+          Value: "True"
+
+Outputs:
+   NestingBucket:
+     Description: S3 Receipt Photo Bucket
+     Value: !Ref S3Bucket
+     Export:
+       Name: !Sub ${AWS::StackName}-S3ReceiptPhotoBucket
