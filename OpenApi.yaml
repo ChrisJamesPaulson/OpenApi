@@ -75,7 +75,7 @@ Resources:
   ParamURL:
     Type: AWS::SSM::Parameter
     Properties: 
-      Name: !Sub /${pASPNETCOREENVIRONMENT}/Global/Api/PurchaseOrderUrl
+      Name: dev /${pASPNETCOREENVIRONMENT}/Global/Api/PurchaseOrderUrl
       Type: String
       Value:
         Fn::Sub: 
@@ -85,28 +85,28 @@ Resources:
   ParamNodeContent:
     Type: AWS::SSM::Parameter
     Properties: 
-      Name: !Sub /${pASPNETCOREENVIRONMENT}/PurchaseOrder/Log4Net/PropertyOverrides/0/NodeContent
+      Name: dev /${pASPNETCOREENVIRONMENT}/PurchaseOrder/Log4Net/PropertyOverrides/0/NodeContent
       Type: String
       Value: !Ref pLog4NetParam
 
   ParamXRay:
     Type: AWS::SSM::Parameter
     Properties: 
-      Name: !Sub /${pASPNETCOREENVIRONMENT}/PurchaseOrder/XRay/SegmentName
+      Name: dev /${pASPNETCOREENVIRONMENT}/PurchaseOrder/XRay/SegmentName
       Type: String
       Value: "Digisteel.PurchaseOrder.API"
 
   ParamEventsSec:
     Type: AWS::SSM::Parameter
     Properties: 
-      Name: !Sub /${pASPNETCOREENVIRONMENT}/PurchaseOrder/EventsAPISecretKey
+      Name: dev /${pASPNETCOREENVIRONMENT}/PurchaseOrder/EventsAPISecretKey
       Type: String
       Value: "c53e0411-4ca8-417c-8dcb-ffaa950c039a"
 
   ParamReceiptPhotoBucket:
     Type: AWS::SSM::Parameter
     Properties: 
-      Name: !Sub /${pASPNETCOREENVIRONMENT}/PurchaseOrder/ReceiptPhotoBucket
+      Name: dev /${pASPNETCOREENVIRONMENT}/PurchaseOrder/ReceiptPhotoBucket
       Type: String
       Value: !Ref S3Bucket
       
@@ -168,17 +168,17 @@ Resources:
                   - dynamodb:UpdateItem
                   - dynamodb:DeleteItem
                 Resource:
-                  - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/PurchaseOrder*
-                  - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/Receipt*
-                  - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/Requisition*
-                  - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/Return*
-                  - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/ServiceType*
-                  - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/ServiceTypeServiceTypePurchaseAddition*
+                  - dev arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/PurchaseOrder*
+                  - dev arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/Receipt*
+                  - dev arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/Requisition*
+                  - dev arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/Return*
+                  - dev arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/ServiceType*
+                  - dev arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/ServiceTypeServiceTypePurchaseAddition*
               - Effect: Allow
                 Action:
                   - ssm:GetParameters
                   - ssm:GetParametersbyPath
-                Resource: !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/*
+                Resource: dev arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/*
               - Effect: Allow
                 Action:
                   - logs:CreateLogStream
@@ -612,4 +612,4 @@ Outputs:
      Description: S3 Receipt Photo Bucket
      Value: !Ref S3Bucket
      Export:
-       Name: !Sub ${AWS::StackName}-S3ReceiptPhotoBucket
+       Name: dev ${AWS::StackName}-S3ReceiptPhotoBucket
